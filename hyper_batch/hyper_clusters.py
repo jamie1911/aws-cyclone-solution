@@ -435,7 +435,8 @@ class Clusters(core.Stack):
                         "bid_percentage": cluster['bid_percentage'], # Bids for resources at 75% of the on-demand price
                         "vpc": vpc,
                         "maxv_cpus": int(cluster['max_vCPUs'] / 3),
-                        "instance_role": f'arn:aws:iam::{self.account}:instance-profile/{stack_name}-InstanceProfile'
+                        "instance_role": f'arn:aws:iam::{self.account}:instance-profile/{stack_name}-InstanceProfile',
+                        "compute_resources_tags": cluster['compute_resources_tags']
                     },
                     service_role=batchServiceRole,
                 )
