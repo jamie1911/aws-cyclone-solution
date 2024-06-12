@@ -89,6 +89,7 @@ def do_work(command_list):
             logger.error('## PROCESS FAILED: ' + jsonpickle.encode(status, output))
             return output, status
         for command in command_list:
+            print('## STARTING COMMAND: ' + jsonpickle.encode(command))
             result = subprocess.run(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
             if 'returncode=0' in str(result):
                 status = 'ACTIVE'
@@ -656,55 +657,72 @@ for i in range(0,29,1):
     print('QUEUES UPDATED')
 
     ####################jobDefinitions deploy
+    delete_defs = []
+    add_update_defs = []
+    become_active_job_definitions ={}
+    become_active_job_definitions['jobDefinitions'] = []
+
     for item in dynamo_jobDefinitions:
-        
         if item['Status']['S'] == 'Creating' or item['Status']['S'] == 'Updating':
-            logger.info('## CREATING: ' + jsonpickle.encode(item))
-
-            result, status = update_jobDefinitions(stack_name=stack_name)
-
-            update1 = dynamo.update_item(
-                TableName=stack_name + '_jobDefinitions_table',
-                Key={'name': {'S': item['name']['S']}},
-                UpdateExpression="set #attr1 = :p, #attr2 = :r",
-                ExpressionAttributeNames={'#attr1': 'Status', '#attr2': 'Output_Log'},
-                ExpressionAttributeValues={':p': {'S': str(status)}, ':r': {'S': str(result)}},
-                ReturnValues="UPDATED_NEW"
-                )
+            logger.info('## CREATING/UPDATING: ' + jsonpickle.encode(item))
+            for jobDefinition in jobDefinitions['jobDefinitions']:
+                if item['name']['S'] == jobDefinition['jobDefinitionName']:
+                    print(f"Definition {jobDefinition['jobDefinitionName']} to be created/updated in config")
+                    add_update_defs.append(item)
+                    become_active_job_definitions['jobDefinitions'].append(jobDefinition)
+        
+        if item['Status']['S'] == 'ACTIVE':  
+            for jobDefinition in jobDefinitions['jobDefinitions']:
+                if item['name']['S'] == jobDefinition['jobDefinitionName']:
+                    become_active_job_definitions['jobDefinitions'].append(jobDefinition)
 
         if item['Status']['S'] == 'Deleting':
             logger.info('## DELETING: ' + jsonpickle.encode(item))
-            new_jobDefinitions ={}
-            new_jobDefinitions['jobDefinitions'] = []
             for jobDefinition in jobDefinitions['jobDefinitions']:
                 if item['name']['S'] == jobDefinition['jobDefinitionName']:
-                    print('Removing cluster to be deleted from config')
-                else:
-                    new_jobDefinitions['jobDefinitions'].append(jobDefinition)
-            
-            with open("./hyper_batch/configuration/job_definitions.json", 'w') as outfile:
-                json.dump(new_jobDefinitions, outfile)
+                    print(f"Definition {jobDefinition['jobDefinitionName']} to be deleted from config")
+                    delete_defs.append(item)
+    
+    with open("./hyper_batch/configuration/job_definitions.json", 'w') as outfile:
+        json.dump(become_active_job_definitions, outfile)
 
-            result, status = update_jobDefinitions(stack_name=stack_name)
+    result, status = update_jobDefinitions(stack_name=stack_name)
 
-            if status == 'ACTIVE':
-                update1 = dynamo.delete_item(
+    if status == 'ACTIVE':
+        for add_update_def in add_update_defs:
+            dynamo.update_item(
+                                TableName=stack_name + '_jobDefinitions_table',
+                                Key={'name': {'S': add_update_def['name']['S']}},
+                                UpdateExpression="set #attr1 = :p, #attr2 = :r",
+                                ExpressionAttributeNames={'#attr1': 'Status', '#attr2': 'Output_Log'},
+                                ExpressionAttributeValues={':p': {'S': str(status)}, ':r': {'S': str(result)}},
+                                ReturnValues="UPDATED_NEW"
+                                )
+        for delete_def in delete_defs:
+            dynamo.delete_item(
                     TableName=stack_name + '_jobDefinitions_table',
-                    Key={'name': {'S': item['name']['S']}}
+                    Key={'name': {'S': delete_def['name']['S']}}
                     )
-
-            else:
-                with open("./hyper_batch/configuration/job_definitions.json", 'w') as outfile:
-                    json.dump(jobDefinitions, outfile)
-
-                update1 = dynamo.update_item(
-                    TableName=stack_name + '_jobDefinitions_table',
-                    Key={'name': {'S': item['name']['S']}},
-                    UpdateExpression="set #attr1 = :p, #attr2 = :r",
-                    ExpressionAttributeNames={'#attr1': 'Status', '#attr2': 'Output_Log'},
-                    ExpressionAttributeValues={':p': {'S': str(status)}, ':r': {'S': str(result)}},
-                    ReturnValues="UPDATED_NEW"
-                    )
+    #I THINK WE NEED A FAILED, FAILED_UPDATE, FAILED_CREATE, FAILED_DELETE status.. it would make this easier.
+    # else:
+    #     for add_update_def in add_update_defs:
+    #         dynamo.update_item(
+    #                             TableName=stack_name + '_jobDefinitions_table',
+    #                             Key={'name': {'S': add_update_def['name']['S']}},
+    #                             UpdateExpression="set #attr1 = :p, #attr2 = :r",
+    #                             ExpressionAttributeNames={'#attr1': 'Status', '#attr2': 'Output_Log'},
+    #                             ExpressionAttributeValues={':p': {'S': add_update_def['Status']['S']}, ':r': {'S': str(result)}},
+    #                             ReturnValues="UPDATED_NEW"
+    #                             )
+    #     for delete_def in delete_defs:
+    #         dynamo.update_item(
+    #                             TableName=stack_name + '_jobDefinitions_table',
+    #                             Key={'name': {'S': delete_def['name']['S']}},
+    #                             UpdateExpression="set #attr1 = :p, #attr2 = :r",
+    #                             ExpressionAttributeNames={'#attr1': 'Status', '#attr2': 'Output_Log'},
+    #                             ExpressionAttributeValues={':p': {'S':delete_def['Status']['S']}, ':r': {'S': str(result)}},
+    #                             ReturnValues="UPDATED_NEW"
+    #                             )
 
     print('JOB DEFINITIONS UPDATED')
 
